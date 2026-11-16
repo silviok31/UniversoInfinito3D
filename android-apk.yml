@@ -1,0 +1,61 @@
+name: Compilar APK Android
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    env:
+      GODOT_VERSION: '4.3'
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v4
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Instalar ferramentas Android
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platform-tools' 'platforms;android-34' 'build-tools;34.0.0'
+      - name: Instalar Godot e templates
+        run: |
+          set -eux
+          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          sudo install -m 755 "/tmp/Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" -O /tmp/templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p /tmp/godot-templates
+          unzip -q /tmp/templates.tpz -d /tmp/godot-templates
+          cp -a /tmp/godot-templates/templates/. "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+      - name: Localizar projeto
+        id: project
+        shell: bash
+        run: |
+          if [ -f project.godot ]; then echo 'dir=.' >> "$GITHUB_OUTPUT"; elif [ -f UniversoInfinito3D/project.godot ]; then echo 'dir=UniversoInfinito3D' >> "$GITHUB_OUTPUT"; else echo 'project.godot nao encontrado'; exit 1; fi
+      - name: Importar recursos
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: godot --headless --editor --path . --import --quit
+      - name: Exportar APK de teste
+        working-directory: ${{ steps.project.outputs.dir }}
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+        run: |
+          mkdir -p build
+          godot --headless --path . --export-debug Android build/UniversoInfinito3D.apk
+          test -s build/UniversoInfinito3D.apk
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: UniversoInfinito3D-Android-APK
+          path: ${{ steps.project.outputs.dir }}/build/UniversoInfinito3D.apk
+          if-no-files-found: error
+          retention-days: 30
